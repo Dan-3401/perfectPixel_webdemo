@@ -1,5 +1,6 @@
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { removeWhite } from './public/remove-white-core.js';
 import { SamplingMethod, NdArray, DebugData } from './types';
 import { getPerfectPixel } from './services/perfectPixelService';
 import { createNdArray } from './services/ndarray-lite';
@@ -7,6 +8,40 @@ import { createNdArray } from './services/ndarray-lite';
 const App: React.FC = () => {
   const [image, setImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [pixelData, setPixelData] = useState<ImageData | null>(null);
+  const [removeBackground, setRemoveBackground] = useState(false);
+  const [backgroundColor, setBackgroundColor] = useState('#ffffff');
+  const [tolerance, setTolerance] = useState(15);
+  const [removeAll, setRemoveAll] = useState(false);
+  const [previewTool, setPreviewTool] = useState<'pan' | 'pick' | 'erase'>('pan');
+  const [eraseSeeds, setEraseSeeds] = useState<number[]>([]);
+  const backgroundResult = useMemo(() => {
+    if (!pixelData || !removeBackground) return null;
+    const color = backgroundColor.match(/[a-f0-9]{2}/gi)!.map(value => parseInt(value, 16));
+    let output = removeWhite(pixelData.data, pixelData.width, pixelData.height, tolerance, removeAll, null, color);
+    let removed = output.removed;
+    for (const seed of eraseSeeds) {
+      output = removeWhite(output.data, pixelData.width, pixelData.height, tolerance, false, seed, color);
+      removed += output.removed;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = pixelData.width; canvas.height = pixelData.height;
+    canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(output.data), pixelData.width, pixelData.height), 0, 0);
+    return { url: canvas.toDataURL('image/png'), removed };
+  }, [pixelData, removeBackground, backgroundColor, tolerance, removeAll, eraseSeeds]);
+  const finalImage = removeBackground ? backgroundResult?.url || null : processedImage;
+  const handleResultClick = (event: React.MouseEvent<HTMLImageElement>) => {
+    if (!removeBackground || !pixelData || previewTool === 'pan') return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(pixelData.width - 1, Math.floor((event.clientX - bounds.left) * pixelData.width / bounds.width)));
+    const y = Math.max(0, Math.min(pixelData.height - 1, Math.floor((event.clientY - bounds.top) * pixelData.height / bounds.height)));
+    const seed = y * pixelData.width + x;
+    if (previewTool === 'pick') {
+      if (!pixelData.data[seed * 4 + 3]) return;
+      setBackgroundColor('#' + [...pixelData.data.slice(seed * 4, seed * 4 + 3)].map(value => value.toString(16).padStart(2, '0')).join(''));
+      setEraseSeeds([]); setPreviewTool('pan');
+    } else setEraseSeeds(seeds => [...seeds, seed]);
+  };
   const [samplingMethod, setSamplingMethod] = useState<SamplingMethod>('center');
   const [downloadScale, setDownloadScale] = useState<number>(4);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -29,7 +64,7 @@ const App: React.FC = () => {
 
   // Fetch GitHub stars
   useEffect(() => {
-    fetch('https://api.github.com/repos/theamusing/perfectPixel')
+    fetch('/github-stars.json')
       .then(res => res.json())
       .then(data => {
         if (data && typeof data.stargazers_count === 'number') {
@@ -46,6 +81,7 @@ const App: React.FC = () => {
       reader.onload = (event) => {
         setImage(event.target?.result as string);
         setProcessedImage(null);
+        setPixelData(null); setEraseSeeds([]); setPreviewTool('pan');
         setRefinedSize(null);
         setError(null);
         setDebugData(null);
@@ -59,6 +95,7 @@ const App: React.FC = () => {
     if (!image) return;
 
     setIsProcessing(true);
+    setProcessedImage(null); setPixelData(null); setEraseSeeds([]);
     setError(null);
     setRefinedSize(null);
     setOffset({ x: 0, y: 0 });
@@ -68,7 +105,7 @@ const App: React.FC = () => {
       img.src = image;
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = () => reject(new Error("Failed to load image"));
+        img.onerror = () => reject(new Error("图片加载失败"));
       });
 
       const maxDim = 1024;
@@ -100,7 +137,7 @@ const App: React.FC = () => {
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Could not create canvas context');
+      if (!ctx) throw new Error('无法创建画布上下文');
 
       if (w > img.width) {
           ctx.imageSmoothingEnabled = false; // Nearest neighbor for pixel art upscaling
@@ -118,7 +155,7 @@ const App: React.FC = () => {
       setDebugData(result.debugData || null);
 
       if (result.refinedW === null || result.refinedH === null) {
-        throw new Error('Failed to refine grid. Try a different sampling method or image.');
+        throw new Error('无法识别像素网格，请尝试更换采样方式或图片。');
       }
 
       setRefinedSize({ w: result.refinedW, h: result.refinedH });
@@ -128,7 +165,7 @@ const App: React.FC = () => {
       outCanvas.width = resW;
       outCanvas.height = resH;
       const outCtx = outCanvas.getContext('2d');
-      if (!outCtx) throw new Error('Could not create output canvas context');
+      if (!outCtx) throw new Error('无法创建输出画布上下文');
 
       const outImageData = outCtx.createImageData(resW, resH);
       for (let y = 0; y < resH; y++) {
@@ -150,18 +187,18 @@ const App: React.FC = () => {
       }
       outCtx.putImageData(outImageData, 0, 0);
       setProcessedImage(outCanvas.toDataURL());
+      setPixelData(outImageData);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'An unexpected error occurred during processing.');
+      setError(err.message || '处理过程中发生未知错误。');
     } finally {
       setIsProcessing(false);
     }
   }, [image, samplingMethod]);
 
   const downloadImage = () => {
-    if (!processedImage) return;
+    if (!finalImage || isProcessing) return;
     const img = new Image();
-    img.src = processedImage;
     img.onload = () => {
       const scale = downloadScale;
       const canvas = document.createElement('canvas');
@@ -171,15 +208,23 @@ const App: React.FC = () => {
       if (!ctx) return;
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const link = document.createElement('a');
-      link.download = `perfect-pixel-scaled-x${scale}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+      canvas.toBlob(blob => {
+        if (!blob) { setError('PNG 导出失败，请重试。'); return; }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `perfect-pixel${removeBackground ? '-transparent' : ''}-x${scale}.png`;
+        link.href = url;
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }, 'image/png');
     };
+    img.onerror = () => setError('无法载入导出图片，请重新生成。');
+    img.src = finalImage;
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (!processedImage) return;
+    if (removeBackground && previewTool !== 'pan') return;
     setIsDragging(true);
     setStartPos({ x: e.clientX - offset.x, y: e.clientY - offset.y });
     e.preventDefault();
@@ -272,7 +317,7 @@ const App: React.FC = () => {
 
       <header className="text-center mb-12">
         <h1 className="text-4xl font-extrabold text-slate-800 mb-2 tracking-tight">PerfectPixel</h1>
-        <p className="text-slate-500">Automatically detect pixel grids and restore sharp, pixel-perfect pixel art from distorted pixel-style images.</p>
+        <p className="text-slate-500">自动识别像素网格，把失真的像素风图片还原为锐利、精准的像素图。</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch mb-8">
@@ -280,18 +325,18 @@ const App: React.FC = () => {
         <div className="bg-white rounded-2xl shadow-xl p-6 border border-slate-100 flex flex-col">
           <h2 className="text-xl font-bold text-slate-700 mb-4 flex items-center">
             <span className="w-2 h-6 bg-indigo-500 rounded-full mr-3"></span>
-            Original Image
+            原图
           </h2>
           
           <div className={`flex-grow border-2 border-dashed rounded-xl relative group transition-all duration-300 min-h-[400px] flex items-center justify-center overflow-hidden ${image ? 'border-transparent' : 'border-slate-300 hover:border-indigo-400 bg-slate-50'}`}>
             {image ? (
-              <img src={image} alt="Original" className="max-w-full max-h-full object-contain p-2" />
+              <img src={image} alt="原图" className="max-w-full max-h-full object-contain p-2" />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
                 <svg className="w-12 h-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <p>Click to upload or drag image</p>
+                <p>点击上传，或将图片拖到此处</p>
               </div>
             )}
             <input type="file" ref={fileInputRef} className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={handleFileChange} />
@@ -299,14 +344,14 @@ const App: React.FC = () => {
 
           <div className="mt-6 space-y-4">
             <div className="flex items-center space-x-4">
-              <label className="text-sm font-medium text-slate-600 w-32">Sampling:</label>
+              <label className="text-sm font-medium text-slate-600 w-32">采样方式：</label>
               <select value={samplingMethod} onChange={(e) => setSamplingMethod(e.target.value as SamplingMethod)} className="flex-grow bg-slate-100 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500">
-                <option value="center">Center Sample</option>
-                <option value="majority">Majority Cluster</option>
+                <option value="center">中心采样</option>
+                <option value="majority">多数聚类</option>
               </select>
             </div>
             <button onClick={processImage} disabled={!image || isProcessing} className={`w-full py-3 rounded-xl font-bold transition-all duration-300 flex items-center justify-center ${!image || isProcessing ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-[0.98]'}`}>
-              {isProcessing ? 'Analyzing Grid...' : 'Generate Scaled Image'}
+              {isProcessing ? '正在分析网格…' : '生成像素图'}
             </button>
           </div>
         </div>
@@ -315,7 +360,7 @@ const App: React.FC = () => {
         <div className="bg-white rounded-2xl shadow-xl p-6 border border-slate-100 flex flex-col">
           <h2 className="text-xl font-bold text-slate-700 mb-4 flex items-center">
             <span className="w-2 h-6 bg-teal-500 rounded-full mr-3"></span>
-            Perfect Pixel Result
+            像素图结果
           </h2>
           <div 
             ref={outputContainerRef}
@@ -323,13 +368,14 @@ const App: React.FC = () => {
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
+            style={removeBackground ? { backgroundColor: '#fff', backgroundImage: 'conic-gradient(#dce2eb 25%, transparent 0 50%, #dce2eb 0 75%, transparent 0)', backgroundSize: '20px 20px', cursor: previewTool === 'pan' ? 'grab' : 'crosshair' } : undefined}
             className={`flex-grow bg-slate-50 border border-slate-200 rounded-xl relative overflow-hidden min-h-[400px] flex items-center justify-center ${processedImage ? 'cursor-grab active:cursor-grabbing' : ''}`}
           >
             {error ? (
               <div className="p-6 text-center">
                 <div className="bg-red-50 text-red-600 p-4 rounded-lg flex flex-col items-center">
                   <svg className="w-10 h-10 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                  <p className="font-semibold">Detection Failed</p>
+                  <p className="font-semibold">识别失败</p>
                   <p className="text-xs mt-1 max-w-[250px]">{error}</p>
                 </div>
               </div>
@@ -343,33 +389,58 @@ const App: React.FC = () => {
                 }}
               >
                 <img 
-                  src={processedImage} 
-                  alt="Result" 
+                  src={removeBackground && previewTool === 'pick' ? processedImage : finalImage || undefined}
+                  onClick={handleResultClick}
+                  alt="结果" 
                   className="w-full h-full pixelated shadow-xl border border-slate-300" 
                   draggable={false}
                 />
               </div>
             ) : (
-              <p className="text-slate-400 italic">No output yet</p>
+              <p className="text-slate-400 italic">尚无结果</p>
             )}
 
             {processedImage && refinedSize && (
               <div className="absolute top-4 right-4 bg-slate-800/80 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-xs font-mono z-10 pointer-events-none shadow-lg">
-                Grid: {refinedSize.w} × {refinedSize.h} | View: {Math.round(refinedSize.w * downloadScale)} × {Math.round(refinedSize.h * downloadScale)}
+                网格：{refinedSize.w} × {refinedSize.h} ｜ 视图：{Math.round(refinedSize.w * downloadScale)} × {Math.round(refinedSize.h * downloadScale)}
               </div>
             )}
           </div>
 
           <div className="mt-6 space-y-6">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3">
+              <button type="button" role="switch" aria-checked={removeBackground} onClick={() => { setRemoveBackground(value => !value); setPreviewTool('pan'); }} className={`w-full py-3 rounded-xl font-bold ${removeBackground ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {removeBackground ? '去背景：已开启' : '去背景：已关闭（保留原背景）'}
+              </button>
+              {removeBackground && <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label>背景颜色 <input aria-label="背景颜色" type="color" value={backgroundColor} onChange={event => { setBackgroundColor(event.target.value); setEraseSeeds([]); }} /></label>
+                  <span className="font-mono text-sm">{backgroundColor.toUpperCase()}</span>
+                  <button disabled={!pixelData} onClick={() => setPreviewTool(previewTool === 'pick' ? 'pan' : 'pick')} className="rounded-lg bg-indigo-100 px-3 py-2 disabled:opacity-40">{previewTool === 'pick' ? '取消取色' : '从结果图取色'}</button>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label>颜色容差 <input aria-label="颜色容差" className="w-20 rounded border p-1" type="number" min="0" max="100" value={tolerance} onChange={event => { setTolerance(Math.max(0, Math.min(100, Number(event.target.value) || 0))); setEraseSeeds([]); }} /></label>
+                  <select aria-label="去除方式" className="rounded border p-2" value={removeAll ? 'all' : 'edge'} onChange={event => { setRemoveAll(event.target.value === 'all'); setEraseSeeds([]); }}>
+                    <option value="edge">仅边缘连通区域（推荐）</option><option value="all">所有相近颜色</option>
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button disabled={!pixelData} onClick={() => setPreviewTool(previewTool === 'erase' ? 'pan' : 'erase')} className="rounded-lg bg-indigo-100 px-3 py-2 disabled:opacity-40">{previewTool === 'erase' ? '结束补去' : '点击补去封闭区域'}</button>
+                  <button disabled={!eraseSeeds.length} onClick={() => setEraseSeeds(seeds => seeds.slice(0, -1))} className="rounded-lg bg-slate-200 px-3 py-2 disabled:opacity-40">撤销上次补去</button>
+                </div>
+                <p role="status" className="text-sm text-slate-600">{previewTool === 'pick' ? '正在显示去背景前的结果，请点击背景取色。' : previewTool === 'erase' ? '点击结果图中残留的同色背景区域。' : backgroundResult ? `已去除 ${backgroundResult.removed} 个像素，棋盘格表示透明。` : '生成像素图后将自动去背景。'}</p>
+                <p className="text-xs text-slate-500">适合纯色或近似纯色背景；与背景同色且连通的主体也可能被去除。关闭开关即可恢复背景。调整颜色、容差或方式会重置手动补去。</p>
+              </>}
+            </div>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
               <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium text-slate-600">Zoom / Export Scale:</label>
+                <label className="text-sm font-medium text-slate-600">缩放 / 导出倍率：</label>
                 <span className="text-indigo-600 font-bold bg-indigo-50 px-3 py-1 rounded-full text-sm">{downloadScale}x</span>
               </div>
               <input type="range" min="1" max="16" step="1" value={downloadScale} onChange={(e) => setDownloadScale(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
             </div>
-            <button onClick={downloadImage} disabled={!processedImage} className={`w-full py-3 rounded-xl font-bold transition-all duration-300 flex items-center justify-center ${!processedImage ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-teal-600 text-white hover:bg-teal-700 shadow-lg shadow-teal-200 active:scale-[0.98]'}`}>
-              Download Scaled Image
+            <button onClick={downloadImage} disabled={!finalImage || isProcessing} className={`w-full py-3 rounded-xl font-bold transition-all duration-300 flex items-center justify-center ${!finalImage ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-teal-600 text-white hover:bg-teal-700 shadow-lg shadow-teal-200 active:scale-[0.98]'}`}>
+              {removeBackground ? '下载透明 PNG' : '下载像素图 PNG'}
             </button>
           </div>
         </div>
@@ -383,9 +454,9 @@ const App: React.FC = () => {
         >
           <div className="flex items-center">
             <span className="w-2 h-6 bg-slate-400 rounded-full mr-3"></span>
-            <span className="font-bold text-lg">Diagnostics & Grid Analysis</span>
+            <span className="font-bold text-lg">诊断与网格分析</span>
           </div>
-          <span className="text-sm text-slate-400">{showDebug ? 'Hide' : 'Show'} details</span>
+          <span className="text-sm text-slate-400">{showDebug ? '收起' : '展开'}详情</span>
         </button>
         
         {showDebug && (
@@ -393,20 +464,20 @@ const App: React.FC = () => {
             {debugData ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">FFT Magnitude</h3>
+                  <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">FFT 频谱幅度</h3>
                   <div className="bg-black rounded-lg overflow-hidden border border-slate-200 aspect-square flex items-center justify-center">
                     <canvas ref={magCanvasRef} className="max-w-full max-h-full" />
                   </div>
                 </div>
                 <div className="md:col-span-2 space-y-6">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">Vertical Periodicity</h3>
+                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">垂直方向周期性</h3>
                     <div className="bg-white rounded-lg p-2 border border-slate-200 overflow-hidden">
                       <canvas ref={rowChartRef} className="w-full h-[100px]" />
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">Horizontal Periodicity</h3>
+                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">水平方向周期性</h3>
                     <div className="bg-white rounded-lg p-2 border border-slate-200 overflow-hidden">
                       <canvas ref={colChartRef} className="w-full h-[100px]" />
                     </div>
@@ -415,7 +486,7 @@ const App: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-12 text-slate-400 italic">
-                Process an image to view analysis data
+                请先处理一张图片以查看分析数据
               </div>
             )}
           </div>
@@ -426,3 +497,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+

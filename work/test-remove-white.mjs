@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { removeWhite } from '../public/remove-white-core.js';
+const input = new Uint8ClampedArray(5*5*4).fill(255);
+for(let y=1;y<4;y++) for(let x=1;x<4;x++) if(x!==2 || y!==2) input.set([20,30,40,255],(y*5+x)*4);
+const edge=removeWhite(input,5,5,0);
+assert.equal(edge.removed,16);
+assert.equal(edge.data[(2*5+2)*4+3],255);
+assert.deepEqual([...edge.data.slice(24,28)],[20,30,40,255]);
+assert.equal(removeWhite(input,5,5,0,true).removed,17);
+assert.equal(removeWhite(edge.data,5,5,0,false,12).removed,1);
+assert.equal(input[3],255);
+assert.equal(removeWhite(new Uint8ClampedArray([245,246,247,255]),1,1,15).removed,1);
+assert.equal(removeWhite(new Uint8ClampedArray([245,246,247,255]),1,1,0).removed,0);
+assert.equal(removeWhite(new Uint8ClampedArray([255,255,255,0]),1,1,15).removed,0);
+console.log('PASS: edge removal, enclosed white preservation, RGB preservation, all-white mode, manual fill, immutable source, tolerance, existing transparency');

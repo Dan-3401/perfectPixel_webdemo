@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>像素去背景</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef2f7;color:#17243b;font:16px system-ui,sans-serif}main{max-width:1100px;margin:40px auto;padding:0 24px}h1{margin-bottom:8px}p{line-height:1.7;color:#536177}.panel{background:white;border:1px solid #dde3ef;border-radius:16px;padding:24px;margin:20px 0}.controls{display:flex;gap:20px;align-items:center;flex-wrap:wrap}button,.file{background:#4f46e5;color:white;border:0;border-radius:8px;padding:12px 18px;cursor:pointer;font:inherit}button:disabled{opacity:.4;cursor:default}input,select{font:inherit}input[type=number]{width:75px;padding:7px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.preview{min-height:260px;max-height:650px;overflow:auto;display:flex;align-items:flex-start;justify-content:center;border:1px solid #ccd4df;background-color:#fff;background-image:linear-gradient(45deg,#d9dfe8 25%,transparent 25%),linear-gradient(-45deg,#d9dfe8 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#d9dfe8 75%),linear-gradient(-45deg,transparent 75%,#d9dfe8 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}canvas{image-rendering:pixelated;max-width:100%;height:auto}a{color:#4f46e5}#status{min-height:26px}#result,#original{cursor:crosshair}@media(max-width:700px){.grid{grid-template-columns:1fr}main{margin:20px auto}}
+</style></head><body><main>
+<a href="/">← PerfectPixel</a><h1>像素去背景</h1><p>把像素图的指定颜色的背景转换为透明 PNG。保持原始尺寸、颜色和硬边，不添加模糊或羽化。所有处理均在本机完成。</p>
+<section class="panel"><label class="file">选择图片<input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" style="display:none"></label>
+<p>先用 PerfectPixel 整理像素，再导入生成的图片；也可从 PerfectPixel 一键发送到这里。</p>
+<div class="controls"><label>背景颜色 <input id="color" type="color" value="#ffffff"> <span id="color-value">#FFFFFF</span></label><label>颜色容差 <input id="tolerance" type="number" min="0" max="100" value="15"></label><label>去除方式 <select id="mode"><option value="edge">仅边缘相连的背景（推荐）</option><option value="all">所有相近颜色（包括主体内部）</option></select></label><button id="reset" disabled>重新处理 / 撤销补去</button></div>
+<p>点击左侧原图的背景取色，也可使用颜色选择器。容差 0 仅去除完全相同的颜色；增大容差可去除相近颜色。右侧点击补去封闭区域。改变颜色或容差会从原图重新处理。与背景同色且连通的主体也可能被去掉。此工具适合纯色或近似纯色背景。</p>
+<div class="controls"><label>导出倍率 <select id="scale"><option>1</option><option>2</option><option>4</option><option>8</option><option>16</option></select> ×</label><button id="save" disabled>下载透明 PNG</button></div><p id="status" role="status">请选择图片，或从 PerfectPixel 发送处理结果。</p></section>
+<section class="grid"><div><h2>原图 · 点击背景取色</h2><div class="preview"><canvas id="original"></canvas></div></div><div><h2>透明结果 · 点击背景区域补去</h2><div class="preview"><canvas id="result"></canvas></div></div></section>
+</main><script type="module" src="/remove-white-ui.js"></script></body></html>
+

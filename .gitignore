@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# 本地内置的 Node 运行时（约 100MB，含 node.exe）
+runtime/
+
+# 本地构建缓存与日志（npm 缓存约 176MB）
+work/npm-cache/
+work/node-compile-cache/
+work/npm.tgz
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

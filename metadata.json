@@ -1,5 +1,5 @@
 {
-  "name": "PerfectPixel Image Processor",
-  "description": "A professional tool to extract pixel-perfect scaled images from grid-based artwork or screen captures using FFT and grid refinement logic.",
+  "name": "PerfectPixel 图像处理器",
+  "description": "一款专业工具：使用 FFT 与网格细化算法，从网格化绘画或屏幕截图中还原精准的缩放像素图。",
   "requestFramePermissions": []
 }
