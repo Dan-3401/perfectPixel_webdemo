@@ -1,0 +1,1 @@
+export function removeWhite(data: Uint8ClampedArray, width: number, height: number, tolerance?: number, all?: boolean, seed?: number | null, color?: number[]): { data: Uint8ClampedArray; removed: number };
